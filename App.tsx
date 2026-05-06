@@ -126,6 +126,7 @@ const App: React.FC = () => {
   const dragControls = useDragControls();
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const isResizing = useRef(false);
@@ -328,7 +329,7 @@ const App: React.FC = () => {
   }, 300), [fetchTables]);
 
   useEffect(() => {
-    fetchTables();
+    fetchTables().finally(() => setIsInitializing(false));
   }, [fetchTables]);
 
   // ... fetchTableDetail ...
@@ -1969,6 +1970,10 @@ const App: React.FC = () => {
   const flattenedRowsForViews = useMemo(() => flattenTree(rows), [rows]);
 
   // --- Main Render ---
+  if (isInitializing) {
+      return null;
+  }
+
   if (tables.length === 0 && !loading && !activeTable) {
       return (
         <div className="flex h-screen w-full items-center justify-center">
