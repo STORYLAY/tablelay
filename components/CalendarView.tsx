@@ -164,8 +164,9 @@ const CalendarCardPopup: React.FC<{
     onClose: () => void;
     onSave: (fieldId: string, val: any) => void;
     onEditLink: (row: Row, col: Column) => void;
+    onOpenDetail: (row: Row) => void;
     position: { x: number, y: number } | null;
-}> = ({ row, columns, dateFieldId, titleFieldId, onClose, onSave, onEditLink, position }) => {
+}> = ({ row, columns, dateFieldId, titleFieldId, onClose, onSave, onEditLink, onOpenDetail, position }) => {
     const titleCol = columns.find(c => c.id === titleFieldId) || columns[0];
     const [title, setTitle] = useState(formatFieldValue(row.data[titleCol.id], titleCol.type));
 
@@ -378,7 +379,7 @@ const CalendarCardPopup: React.FC<{
                       </div>
                   </Tooltip>
                  </div>
-                 <button className="text-xs text-gray-400 border border-gray-200 px-2 py-1 rounded-md hover:bg-gray-50 hover:text-gray-600 transition-colors flex items-center gap-1 shrink-0"><ICONS.Eye /> 查看</button>
+                 <button onClick={() => { onClose(); onOpenDetail(row); }} className="text-xs text-gray-400 border border-gray-200 px-2 py-1 rounded-md hover:bg-gray-50 hover:text-gray-600 transition-colors flex items-center gap-1 shrink-0"><ICONS.Eye /> 查看</button>
              </div>
              <div className="p-4 space-y-4 max-h-[300px] overflow-y-auto">
                  <div className="group">
@@ -1080,6 +1081,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({
               titleFieldId={targetTitleCol.id}
               onClose={() => setEditingRowId(null)}
               onSave={(fid, val) => onCellChange(editingRow.id, fid, val)}
+              onOpenDetail={onOpenDetail}
               onEditLink={(row, col) => {
                   const targetTableId = col.config?.linked_table_id;
                   if (targetTableId) {

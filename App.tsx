@@ -47,6 +47,17 @@ const findRowInTree = (rows: Row[], id: string): Row | undefined => {
     return undefined;
 };
 
+const flattenRows = (rows: Row[]): Row[] => {
+    let result: Row[] = [];
+    for (const row of rows) {
+        result.push(row);
+        if (row.children && row.children.length > 0) {
+            result = result.concat(flattenRows(row.children));
+        }
+    }
+    return result;
+};
+
 const buildRowTree = (flatRows: Row[]): Row[] => {
     const rowMap = new Map<string, Row>();
     const rootRows: Row[] = [];
@@ -630,7 +641,7 @@ const App: React.FC = () => {
     fetchUndoRedoStatus();
   }, [fetchRows, fetchUndoRedoStatus]);
 
-  const handleUndo = async () => {
+  const handleUndo = useCallback(async () => {
     if (!activeTableId || !canUndo) return;
     try {
       await api.undo(activeTableId);
@@ -645,9 +656,9 @@ const App: React.FC = () => {
           await fetchUndoRedoStatus(); // Sync status
       }
     }
-  };
+  }, [activeTableId, canUndo, fetchTableDetail, fetchRows, fetchUndoRedoStatus]);
 
-  const handleRedo = async () => {
+  const handleRedo = useCallback(async () => {
     if (!activeTableId || !canRedo) return;
     try {
       await api.redo(activeTableId);
@@ -662,7 +673,45 @@ const App: React.FC = () => {
           await fetchUndoRedoStatus(); // Sync status
       }
     }
-  };
+  }, [activeTableId, canRedo, fetchTableDetail, fetchRows, fetchUndoRedoStatus]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isTokenDialogOpen && (e.ctrlKey || e.metaKey)) {
+        if (e.key.toLowerCase() === 'z') {
+          // Check if editing text
+          const activeEl = document.activeElement;
+          const isInput = activeEl && (
+            activeEl.tagName === 'INPUT' || 
+            activeEl.tagName === 'TEXTAREA' || 
+            (activeEl as HTMLElement).isContentEditable
+          );
+          if (isInput) return;
+          
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleRedo();
+          } else {
+            handleUndo();
+          }
+        } else if (e.key.toLowerCase() === 'y') {
+          const activeEl = document.activeElement;
+          const isInput = activeEl && (
+            activeEl.tagName === 'INPUT' || 
+            activeEl.tagName === 'TEXTAREA' || 
+            (activeEl as HTMLElement).isContentEditable
+          );
+          if (isInput) return;
+
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo, isTokenDialogOpen]);
 
   // ... Tour Steps ...
   const tourSteps: TourStep[] = [
@@ -992,8 +1041,54 @@ const App: React.FC = () => {
         }
 
         // 1.5 Batch Update for Search Reference
-        if (col.type === FieldType.SEARCH_REFERENCE && col.config.search_reference_config) {
+        if (col.type === FieldType.SEARCH_REFERENCE && col.config?.search_reference_config) {
             await api.batchUpdateSearchReference(activeTableId, savedColId);
+        }
+
+        // 1.6 Batch Update for Formula
+        if (col.type === FieldType.FORMULA && col.config?.formula) {
+            const allLoadedRows = flattenRows(rows);
+            if (allLoadedRows.length > 0) {
+                // Ensure columns array includes the updated/new column
+                let updatedCols = activeTable ? [...activeTable.columns] : [];
+                const existIdx = updatedCols.findIndex(c => c.id === savedColId);
+                if (existIdx >= 0) {
+                    updatedCols[existIdx] = { ...col, id: savedColId };
+                } else {
+                    updatedCols.push({ ...col, id: savedColId });
+                }
+
+                const payload = allLoadedRows.map((r: Row) => {
+                    const val = evaluateFormula(col.config.formula, updatedCols, r);
+                    return {
+                        row_id: r.id,
+                        operation_type: 'update',
+                        parent_id: r.parent_id || null,
+                        data: {
+                            [savedColId]: val
+                        }
+                    };
+                });
+                await api.batchProcessRows(activeTableId, payload);
+            }
+        }
+
+        // 1.7 Batch Update for Checkbox (Default false for new columns)
+        if (col.type === FieldType.CHECKBOX && !existingCol) {
+            const allLoadedRows = flattenRows(rows);
+            if (allLoadedRows.length > 0) {
+                const payload = allLoadedRows.map((r: Row) => {
+                    return {
+                        row_id: r.id,
+                        operation_type: 'update',
+                        parent_id: r.parent_id || null,
+                        data: {
+                            [savedColId]: false
+                        }
+                    };
+                });
+                await api.batchProcessRows(activeTableId, payload);
+            }
         }
 
         // 2. Update View Visibility
@@ -1125,7 +1220,11 @@ const App: React.FC = () => {
       });
 
       columns.forEach(col => {
-          const val = processed[col.id];
+          let val = processed[col.id];
+          if (col.type === FieldType.CHECKBOX) {
+              val = !!val;
+              processed[col.id] = val;
+          }
           if (!val && val !== 0 && val !== false) return; // Allow 0 and false for formulas/numbers fields
 
           if (col.type === FieldType.DEPARTMENT) {
@@ -2334,6 +2433,11 @@ const App: React.FC = () => {
       {activeDetailRowId && activeTable && (() => {
           const row = findRowInTree(rows, activeDetailRowId);
           if (!row) return null;
+          const flatIndex = flattenRows(rows).findIndex(r => r.id === activeDetailRowId);
+          const flatRowsArray = flattenRows(rows);
+          const canPrev = flatIndex > 0;
+          const canNext = flatIndex !== -1 && flatIndex < flatRowsArray.length - 1;
+
           return (
               <RowDetailPanel 
                   tableId={activeTable.id}
@@ -2342,6 +2446,10 @@ const App: React.FC = () => {
                   onClose={() => setActiveDetailRowId(null)}
                   onChange={(rowId, colId, val) => handleCellChange(rowId, colId, val)}
                   onAddColumn={handleAddColumn}
+                  canPrev={canPrev}
+                  canNext={canNext}
+                  onPrev={() => canPrev && setActiveDetailRowId(flatRowsArray[flatIndex - 1].id)}
+                  onNext={() => canNext && setActiveDetailRowId(flatRowsArray[flatIndex + 1].id)}
               />
           );
       })()}

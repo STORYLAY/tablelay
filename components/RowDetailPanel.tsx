@@ -365,6 +365,10 @@ interface RowDetailPanelProps {
   onColumnChange?: (colId: string, newConfig: any) => void;
   onConfirm?: () => void;
   isNew?: boolean;
+  onNext?: () => void;
+  onPrev?: () => void;
+  canNext?: boolean;
+  canPrev?: boolean;
 }
 
 const UserSelector = ({
@@ -599,7 +603,11 @@ const RowDetailPanel: React.FC<RowDetailPanelProps> = ({
   onAddColumn,
   onColumnChange,
   onConfirm,
-  isNew
+  isNew,
+  onNext,
+  onPrev,
+  canNext,
+  canPrev
 }) => {
   const [title, setTitle] = useState('');
   const [activeSelectorFieldId, setActiveSelectorFieldId] = useState<string | null>(null);
@@ -992,6 +1000,29 @@ const RowDetailPanel: React.FC<RowDetailPanelProps> = ({
                 <Tooltip content="收起">
                     <button onClick={onClose} className="hover:text-gray-600"><ICONS.ChevronsRight className="w-5 h-5" /></button>
                 </Tooltip>
+                {!isNew && (
+                    <>
+                        <div className="h-4 w-px bg-gray-200 mx-1"></div>
+                        <Tooltip content="上一条">
+                            <button 
+                                onClick={onPrev} 
+                                disabled={!canPrev}
+                                className={`flex items-center justify-center p-1 rounded transition-colors ${canPrev ? 'hover:bg-gray-100 text-gray-500 hover:text-gray-800' : 'text-gray-300 cursor-not-allowed'}`}
+                            >
+                                <span className="font-bold text-lg leading-none" style={{ fontFamily: 'system-ui, sans-serif' }}>↑</span>
+                            </button>
+                        </Tooltip>
+                        <Tooltip content="下一条">
+                            <button 
+                                onClick={onNext} 
+                                disabled={!canNext}
+                                className={`flex items-center justify-center p-1 rounded transition-colors ${canNext ? 'hover:bg-gray-100 text-gray-500 hover:text-gray-800' : 'text-gray-300 cursor-not-allowed'}`}
+                            >
+                                <span className="font-bold text-lg leading-none" style={{ fontFamily: 'system-ui, sans-serif' }}>↓</span>
+                            </button>
+                        </Tooltip>
+                    </>
+                )}
             </div>
             
         </div>

@@ -1,6 +1,12 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Column, Row, FieldType } from '../types';
+
+/* 
+Tailwind Safelist:
+bg-primary-500 bg-red-500 bg-orange-500 bg-amber-500 bg-green-500 bg-teal-500 bg-blue-500 bg-indigo-500 bg-purple-500 bg-pink-500
+bg-gray-500 bg-yellow-500 bg-rose-500
+*/
 import { evaluateFormula } from '../formulaUtils';
 import { ICONS, FIELD_TYPE_ICONS, getTagColor, formatDateForDisplay, formatDateForInput, parseLinkValues, parseJsonArray, formatFieldValue } from '../constants';
 import { api } from '../services/api';
@@ -10,7 +16,7 @@ import { FilePreviewModal } from './FilePreviewModal';
 import LinkRecordDialog from './LinkRecordDialog';
 import { UserSelector } from './UserSelector';
 import { UserCellDisplay } from './UserCellDisplay';
-import { SelectCellEditor, MultiSelectCellEditor } from './CellEditors';
+import { SelectCellEditor, MultiSelectCellEditor, AutoResizeTextarea } from './CellEditors';
 
 interface GanttViewProps {
   tableId: string;
@@ -161,6 +167,8 @@ const GanttView: React.FC<GanttViewProps> = ({
   const [editingValue, setEditingValue] = useState<any>(null);
   const isSavingRef = useRef(false);
   const [focusedCell, setFocusedCell] = useState<{ rowId: string, colId: string } | null>(null);
+  const hiddenInputRef = useRef<HTMLTextAreaElement>(null);
+  const isComposingRef = useRef(false);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
   const [expandedRowIds, setExpandedRowIds] = useState<Set<string>>(new Set());
@@ -216,7 +224,16 @@ const GanttView: React.FC<GanttViewProps> = ({
   const saveEditing = () => {
       if (activeEditingCell && !isSavingRef.current) {
           isSavingRef.current = true;
-          onCellChange(activeEditingCell.rowId, activeEditingCell.colId, editingValue);
+          
+          if (editingValue !== null && editingValue !== undefined) {
+              const row = findRowInTree(rows, activeEditingCell.rowId);
+              const originalVal = row?.data?.[activeEditingCell.colId];
+              
+              if (editingValue !== originalVal) {
+                  onCellChange(activeEditingCell.rowId, activeEditingCell.colId, editingValue);
+              }
+          }
+          
           setActiveEditingCell(null);
           setEditingValue(null);
           setTimeout(() => { isSavingRef.current = false; }, 100);
@@ -404,6 +421,7 @@ const GanttView: React.FC<GanttViewProps> = ({
       setScrollX(lastScrollX);
 
       const handleScroll = (e: Event) => {
+          updateHiddenInputPosition();
           const target = e.target as HTMLDivElement;
           if (target === right) {
               left.scrollTop = right.scrollTop;
@@ -561,6 +579,227 @@ const GanttView: React.FC<GanttViewProps> = ({
       window.addEventListener('click', handleClick);
       return () => window.removeEventListener('click', handleClick);
   }, []);
+
+  // --- Keyboard navigation logic start ---
+  const startEditing = (rowId: string, colId: string, initialValue: any) => {
+      const el = document.querySelector(`[data-row-id="${rowId}"][data-col-id="${colId}"]`);
+      if (el) {
+          setActiveEditingCell({ rowId, colId, rect: el.getBoundingClientRect() });
+          setEditingValue(initialValue);
+      }
+  };
+
+  const navigateToCell = React.useCallback((rowId: string, colId: string, direction: 'next' | 'prev') => {
+      const flatRows = flattenedRows.filter(r => !r.isGroup);
+      const rIdx = flatRows.findIndex(r => r.row.id === rowId);
+      const cIdx = columns.findIndex(c => c.id === colId);
+      if (rIdx === -1 || cIdx === -1) return;
+
+      let nextR = rIdx;
+      let nextC = cIdx;
+
+      if (direction === 'next') {
+          if (cIdx < columns.length - 1) {
+              nextC = cIdx + 1;
+          } else if (rIdx < flatRows.length - 1) {
+              nextC = 0;
+              nextR = rIdx + 1;
+          } else {
+              return;
+          }
+      } else {
+          if (cIdx > 0) {
+              nextC = cIdx - 1;
+          } else if (rIdx > 0) {
+              nextC = columns.length - 1;
+              nextR = rIdx - 1;
+          } else {
+              return;
+          }
+      }
+
+      const nextRow = flatRows[nextR];
+      const nextCol = columns[nextC];
+      if (nextRow && nextCol) {
+          setFocusedCell({ rowId: nextRow.row.id, colId: nextCol.id });
+          setTimeout(() => {
+              const element = document.querySelector(`[data-row-id="${nextRow.row.id}"][data-col-id="${nextCol.id}"]`);
+              if (element) {
+                  element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+              }
+          }, 0);
+      }
+  }, [flattenedRows, columns]);
+
+  const moveVertical = React.useCallback((rowId: string, colId: string, offset: number) => {
+      const flatRows = flattenedRows.filter(r => !r.isGroup);
+      const rIdx = flatRows.findIndex(r => r.row.id === rowId);
+      if (rIdx === -1) return;
+      const nextR = rIdx + offset;
+      if (nextR >= 0 && nextR < flatRows.length) {
+          const nextRow = flatRows[nextR];
+          setFocusedCell({ rowId: nextRow.row.id, colId });
+          setTimeout(() => {
+              const element = document.querySelector(`[data-row-id="${nextRow.row.id}"][data-col-id="${colId}"]`);
+              if (element) {
+                  element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+              }
+          }, 0);
+      }
+  }, [flattenedRows]);
+
+  const updateHiddenInputPosition = React.useCallback(() => {
+      if (focusedCell && !activeEditingCell && hiddenInputRef.current) {
+          const el = document.querySelector(`[data-row-id="${focusedCell.rowId}"][data-col-id="${focusedCell.colId}"]`);
+          if (el) {
+              const rect = el.getBoundingClientRect();
+              hiddenInputRef.current.style.left = `${rect.left}px`;
+              hiddenInputRef.current.style.top = `${rect.top}px`;
+              hiddenInputRef.current.style.width = `${rect.width}px`;
+              hiddenInputRef.current.style.height = `${rect.height}px`;
+          }
+      }
+  }, [focusedCell, activeEditingCell]);
+
+  useEffect(() => {
+      if (focusedCell && !activeEditingCell && hiddenInputRef.current) {
+          setTimeout(() => {
+              updateHiddenInputPosition();
+              if (hiddenInputRef.current) {
+                  hiddenInputRef.current.focus({ preventScroll: true });
+              }
+          }, 0);
+      }
+  }, [focusedCell, activeEditingCell, updateHiddenInputPosition]);
+
+  useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+          const isHiddenInput = e.target === hiddenInputRef.current;
+          const isInput = (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement).isContentEditable) && !isHiddenInput;
+          
+          if (isInput) {
+              if (e.key === 'Tab') {
+                  e.preventDefault();
+                  const currentCell = activeEditingCell || focusedCell;
+                  if (currentCell) {
+                      saveEditing();
+                      navigateToCell(currentCell.rowId, currentCell.colId, e.shiftKey ? 'prev' : 'next');
+                  }
+              }
+              if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  const currentCell = activeEditingCell || focusedCell;
+                  if (currentCell) {
+                      saveEditing();
+                      moveVertical(currentCell.rowId, currentCell.colId, e.shiftKey ? -1 : 1);
+                  }
+              }
+              if (e.key === 'Escape') {
+                  setActiveEditingCell(null);
+                  setEditingValue(null);
+              }
+              return;
+          }
+
+          if (!focusedCell || activeEditingCell) {
+              if (e.key === 'Escape' && activeEditingCell) {
+                  setActiveEditingCell(null);
+                  setEditingValue(null);
+              }
+              return;
+          }
+
+          if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+          if (e.key === 'Tab') {
+              e.preventDefault();
+              navigateToCell(focusedCell.rowId, focusedCell.colId, e.shiftKey ? 'prev' : 'next');
+              return;
+          }
+
+          if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              navigateToCell(focusedCell.rowId, focusedCell.colId, 'next');
+              return;
+          } else if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              navigateToCell(focusedCell.rowId, focusedCell.colId, 'prev');
+              return;
+          } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              moveVertical(focusedCell.rowId, focusedCell.colId, -1);
+              return;
+          } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              moveVertical(focusedCell.rowId, focusedCell.colId, 1);
+              return;
+          }
+
+          const col = columns.find(c => c.id === focusedCell.colId);
+          if (!col) return;
+
+          const row = flattenedRows.find(r => r.row.id === focusedCell.rowId)?.row;
+          if (!row) return;
+
+          if (e.key === 'F2') {
+              e.preventDefault();
+              if ([FieldType.USER, FieldType.DEPARTMENT, FieldType.SELECT, FieldType.MULTI_SELECT, FieldType.ATTACHMENT].includes(col.type)) {
+                  const cellElement = document.querySelector(`[data-row-id="${focusedCell.rowId}"][data-col-id="${focusedCell.colId}"]`);
+                  const rect = cellElement?.getBoundingClientRect();
+                  setActiveEditingCell({ rowId: focusedCell.rowId, colId: focusedCell.colId, rect });
+              } else if (col.type === FieldType.LINK) {
+                  const targetTableId = col.config?.linked_table_id;
+                  if (targetTableId) {
+                      const primaryColId = columns[0]?.id;
+                      const rowTitle = primaryColId ? String(row.data[primaryColId] || row.id) : row.id;
+                      const val = row.data[col.id];
+                      const values = Array.isArray(val) ? val : (val ? [val] : []);
+                      setLinkDialogState({
+                          isOpen: true,
+                          rowId: row.id,
+                          colId: col.id,
+                          targetTableId,
+                          initialValues: values,
+                          title: rowTitle
+                      });
+                  }
+              } else if (![FieldType.CHECKBOX, FieldType.FORMULA, FieldType.LOOKUP, FieldType.SEARCH_REFERENCE].includes(col.type)) {
+                  startEditing(focusedCell.rowId, focusedCell.colId, row.data[col.id]);
+              }
+              return;
+          }
+
+          if (e.key === 'Enter') {
+              e.preventDefault();
+              moveVertical(focusedCell.rowId, focusedCell.colId, e.shiftKey ? -1 : 1);
+              return;
+          }
+          
+          if (e.key === 'Backspace' || e.key === 'Delete') {
+              e.preventDefault();
+              if (col.type !== FieldType.CHECKBOX && col.type !== FieldType.FORMULA && col.type !== FieldType.LOOKUP) {
+                  onCellChange(row.id, col.id, '');
+              }
+              return;
+          }
+
+          if (e.key.length === 1) {
+              const textTypes = [FieldType.TEXT, FieldType.NUMBER, FieldType.HYPERLINK];
+              if (textTypes.includes(col.type)) {
+                  if (e.keyCode === 229 || e.isComposing) {
+                      return;
+                  }
+                  if (isHiddenInput) {
+                      startEditing(focusedCell.rowId, focusedCell.colId, e.key);
+                  }
+              }
+          }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [focusedCell, activeEditingCell, flattenedRows, columns, navigateToCell, moveVertical]);
+  // --- Keyboard navigation logic end ---
 
   // --- 1. Timeline Config based on ViewMode ---
   const timelineConfig = useMemo(() => {
@@ -816,6 +1055,7 @@ const GanttView: React.FC<GanttViewProps> = ({
   if (!targetDateCol) return <div className="flex-1 flex flex-col items-center justify-center text-gray-400"><ICONS.Gantt /><p>需配置开始日期</p></div>;
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+      updateHiddenInputPosition();
       const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop <= e.currentTarget.clientHeight + 100;
       if (bottom && hasMore && !isLoadingMore && onLoadMore) {
           onLoadMore();
@@ -835,7 +1075,29 @@ const GanttView: React.FC<GanttViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-white overflow-hidden h-full">
+    <div className="flex-1 flex flex-col bg-white overflow-hidden h-full relative text-gray-700 select-none">
+       <textarea 
+           ref={hiddenInputRef}
+           className="fixed opacity-0 p-0 m-0 border-0 outline-none pointer-events-none text-xs px-3"
+           style={{ zIndex: -1, resize: 'none', background: 'transparent' }}
+           onCompositionStart={() => { 
+               updateHiddenInputPosition();
+               isComposingRef.current = true; 
+           }}
+           onCompositionEnd={(e) => {
+               isComposingRef.current = false;
+               if (focusedCell && !activeEditingCell) {
+                   const col = columns.find(c => c.id === focusedCell.colId);
+                   if (col && [FieldType.TEXT, FieldType.NUMBER, FieldType.HYPERLINK].includes(col.type)) {
+                       startEditing(focusedCell.rowId, focusedCell.colId, e.currentTarget.value);
+                       e.currentTarget.value = '';
+                   }
+               }
+           }}
+           onBlur={() => {
+               if (hiddenInputRef.current) hiddenInputRef.current.value = '';
+           }}
+       />
       {/* Top Bar with Switcher */}
       <div className="h-10 border-b border-gray-200 flex items-center justify-between px-4 bg-white shrink-0 z-30">
           <div className="text-sm font-bold text-gray-700 flex items-center gap-2">
@@ -939,7 +1201,7 @@ const GanttView: React.FC<GanttViewProps> = ({
               return (
               <div 
                   key={row.id} 
-                  className={`h-9 border-b border-gray-100 flex transition-colors group ${isSelected ? 'bg-primary-50 hover:bg-primary-50' : 'hover:bg-primary-50/30'}`}
+                  className={`h-9 border-b border-gray-100 flex transition-colors group ${isSelected ? 'bg-primary-50 hover:bg-primary-50' : 'hover:bg-primary-50/30'} ${activeEditingCell?.rowId === row.id ? 'relative z-50' : ''}`}
                   onContextMenu={(e) => handleContextMenu(e, row.id)}
               >
                  <div 
@@ -961,8 +1223,10 @@ const GanttView: React.FC<GanttViewProps> = ({
                      const width = resizingCol?.id === col.id ? resizingCol.currentWidth : (col.width || 150);
                      return (
                          <div 
-                            key={col.id} 
-                            className={`border-r border-gray-100 px-3 flex items-center text-xs text-gray-700 truncate min-w-0 shrink-0 cursor-text relative group/cell ${focusedCell?.rowId === row.id && focusedCell?.colId === col.id ? 'ring-2 ring-inset ring-primary-500 z-20' : ''}`}
+                            key={col.id}
+                            data-row-id={row.id}
+                            data-col-id={col.id}
+                            className={`border-r border-gray-100 px-0 flex items-center text-xs text-gray-700 min-w-0 shrink-0 cursor-text relative group/cell ${focusedCell?.rowId === row.id && focusedCell?.colId === col.id ? 'ring-2 ring-inset ring-primary-500 z-20 bg-primary-50/30' : ''}`}
                             style={{ width, paddingLeft: cIdx === 0 ? `${level * 16 + 12}px` : undefined }}
                             onMouseEnter={(e) => handleCellMouseEnter(e, row, col, val)}
                             onMouseLeave={handleCellMouseLeave}
@@ -1149,43 +1413,35 @@ const GanttView: React.FC<GanttViewProps> = ({
                                              </div>
                                          );
                                      })()
+                                 ) : col.type === FieldType.TEXT ? (
+                                     <span className="truncate flex-1 px-2">{highlightText(val && col.type !== FieldType.DATE ? formatFieldValue(val, col.type) : val)}</span>
                                  ) : col.type === FieldType.HYPERLINK ? (
-                                     <div className="w-full h-full flex items-center px-2 gap-1">
+                                     <div className="w-full h-full flex items-center px-2 overflow-hidden">
+                                         <span className="truncate flex-1 text-primary-600 underline cursor-pointer" onClick={(e) => {
+                                             e.stopPropagation();
+                                             if (val) window.open(String(val).startsWith('http') ? String(val) : `https://${val}`, '_blank');
+                                         }}>{highlightText(String(val || ''))}</span>
+                                     </div>
+                                 ) : (
+                                     <div className="absolute top-0 left-0 w-full h-full z-[100]">
                                          <input 
-                                             type="text"
-                                             className="flex-1 h-full bg-transparent outline-none min-w-0"
+                                             type={col.type === FieldType.DATE ? 'date' : col.type === FieldType.NUMBER ? 'number' : 'text'}
+                                             className="relative z-[101] w-full min-h-full bg-white border-2 border-primary-500 outline-none px-2 py-1 text-sm shadow-lg text-gray-700"
                                              value={(editingValue !== null && editingValue !== undefined) ? editingValue : (val || '')}
                                              onChange={(e) => setEditingValue(e.target.value)}
                                              autoFocus
+                                             onFocus={(e: any) => {
+                                                 const val = e.target.value;
+                                                 if (col.type !== FieldType.DATE && col.type !== FieldType.NUMBER) {
+                                                     e.target.setSelectionRange(val.length, val.length);
+                                                 }
+                                             }}
                                              onBlur={saveEditing}
                                              onKeyDown={(e) => {
                                                  if (e.key === 'Enter') saveEditing();
                                              }}
                                          />
-                                         {val && (
-                                             <button 
-                                                 onClick={(e) => {
-                                                     e.stopPropagation();
-                                                     window.open(String(val).startsWith('http') ? String(val) : `https://${val}`, '_blank');
-                                                 }}
-                                                 className="p-1 text-blue-600 hover:bg-blue-50 rounded shrink-0"
-                                             >
-                                                 <ICONS.Link className="w-3.5 h-3.5" />
-                                             </button>
-                                         )}
                                      </div>
-                                 ) : (
-                                     <input 
-                                         type={col.type === FieldType.DATE ? 'date' : col.type === FieldType.NUMBER ? 'number' : 'text'}
-                                         className="w-full h-full bg-transparent outline-none"
-                                         value={(editingValue !== null && editingValue !== undefined) ? editingValue : (val || '')}
-                                         onChange={(e) => setEditingValue(e.target.value)}
-                                         autoFocus
-                                         onBlur={saveEditing}
-                                         onKeyDown={(e) => {
-                                             if (e.key === 'Enter') saveEditing();
-                                         }}
-                                     />
                                  )
                              ) : (
                                  <>
@@ -1467,13 +1723,12 @@ const GanttView: React.FC<GanttViewProps> = ({
                     const durationDays = endStr && startStr ? Math.max(1, Math.round((new Date(endStr).getTime() - new Date(startStr).getTime()) / (24*3600*1000)) + 1) : 1;
 
                     return (
-                        <div key={row.id} className="h-9 border-b border-gray-100/50 relative hover:bg-gray-50/30 group z-10 flex items-center w-full">
+                        <div key={row.id} className="h-9 border-b border-gray-100/50 relative hover:bg-gray-50/30 group z-10 hover:z-[60] flex items-center w-full">
                             {/* Empty space click detector layer could go here if needed per row, but global is easier */}
                             {isVisible && (
                                 <div 
-                                    className={`absolute h-6 rounded shadow-sm opacity-90 hover:opacity-100 cursor-pointer text-[10px] text-white flex items-center px-1 truncate transition-all hover:ring-2 hover:ring-offset-1 hover:ring-primary-200 group/bar ${bgClass}`}
-                                    style={{ left: Math.max(0, left), width: width, zIndex: timelineDrag?.rowId === row.id ? 20 : 10 }}
-                                    title={`${targetTitleCol?.name || '标题'}: ${rowTitle}\nStart: ${startStr}`}
+                                    className={`absolute h-6 rounded shadow-sm opacity-90 hover:opacity-100 cursor-pointer text-[10px] text-white flex items-center px-1 transition-all hover:ring-2 hover:ring-offset-1 hover:ring-primary-200 hover:z-50 group/bar ${bgClass}`}
+                                    style={{ left: Math.max(0, left), width: width, zIndex: timelineDrag?.rowId === row.id ? 40 : 10 }}
                                     onDoubleClick={() => onOpenDetail && onOpenDetail(row)}
                                     onMouseDown={(e) => {
                                         if ((e.target as HTMLElement).closest('.resize-handle')) return;
@@ -1524,6 +1779,14 @@ const GanttView: React.FC<GanttViewProps> = ({
                                         </div>
                                       </div>
                                     )}
+
+                                    {/* Custom Tooltip */}
+                                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-[7px] hidden group-hover/bar:block w-max max-w-[360px] z-[100] cursor-default pointer-events-none text-left">
+                                        <div className="bg-[#28292e] text-[#e5e5e6] text-[13px] rounded-lg shadow-2xl p-4 whitespace-normal break-words leading-relaxed relative border border-gray-700/50">
+                                            <div className="absolute -top-[6px] left-1/2 -translate-x-1/2 border-x-[6px] border-x-transparent border-b-[6px] border-b-[#28292e]"></div>
+                                            {rowTitle}
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -1872,6 +2135,59 @@ const GanttView: React.FC<GanttViewProps> = ({
                        </ClickOutsideWrapper>
                    );
                }
+                if (col.type === FieldType.TEXT || col.type === FieldType.HYPERLINK) {
+                    const rowVal = row.data?.[col.id];
+                    return createPortal(
+                        <ClickOutsideWrapper onClickOutside={saveEditing}>
+                            <div 
+                                className={`fixed z-[9999] shadow-2xl ${col.type === FieldType.HYPERLINK ? 'flex flex-col border-[2px] border-primary-500 bg-white' : ''}`}
+                                style={{
+                                    top: activeEditingCell.rect.top - 2,
+                                    left: activeEditingCell.rect.left - 2,
+                                    width: activeEditingCell.rect.width + 4,
+                                    minHeight: activeEditingCell.rect.height + 4,
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <AutoResizeTextarea
+                                    className={`relative z-[9999] w-full min-h-full ${col.type === FieldType.TEXT ? 'bg-white border-[2px] border-primary-500 shadow-2xl' : 'bg-transparent'} outline-none px-2 py-1 text-sm resize-none overflow-hidden`}
+                                    value={(editingValue !== null && editingValue !== undefined) ? editingValue : (rowVal || '')}
+                                    onChange={(e: any) => {
+                                        setEditingValue(e.target.value);
+                                    }}
+                                    autoFocus
+                                    onFocus={(e: any) => {
+                                        const val = e.target.value;
+                                        e.target.setSelectionRange(val.length, val.length);
+                                    }}
+                                    onBlur={saveEditing}
+                                    onKeyDown={(e: any) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            saveEditing();
+                                        }
+                                    }}
+                                    style={{ minHeight: activeEditingCell.rect.height }}
+                                />
+                                {col.type === FieldType.HYPERLINK && rowVal && (
+                                    <div className="border-t border-gray-100 bg-gray-50 flex items-center justify-end px-2 py-1 shrink-0 z-[101]">
+                                        <button 
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                window.open(String(rowVal).startsWith('http') ? String(rowVal) : `https://${rowVal}`, '_blank');
+                                            }}
+                                            className="px-2 py-1 bg-white text-blue-600 hover:bg-blue-50 border border-gray-200 rounded text-xs flex items-center gap-1 shadow-sm"
+                                        >
+                                            <ICONS.Link className="w-3 h-3" /> 打卡链接
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </ClickOutsideWrapper>,
+                        document.body
+                    );
+                }
                return null;
            })()
        )}

@@ -701,31 +701,45 @@ const GridView: React.FC<GridViewProps> = ({
   const saveEditing = React.useCallback(() => {
       if (activeEditingCell && !isSavingRef.current) {
           isSavingRef.current = true;
-          onCellChangeInternal(activeEditingCell.rowId, activeEditingCell.colId, editingValue);
+          
+          if (editingValue !== null && editingValue !== undefined) {
+              const row = rows.find(r => r.id === activeEditingCell.rowId);
+              const originalVal = row?.data?.[activeEditingCell.colId];
+              
+              if (editingValue !== originalVal) {
+                  onCellChangeInternal(activeEditingCell.rowId, activeEditingCell.colId, editingValue);
+              }
+          }
+          
           handleSetActiveEditingCell(null);
           setEditingValue(null);
           setTimeout(() => { isSavingRef.current = false; }, 100);
       }
-  }, [activeEditingCell, editingValue, onCellChangeInternal, handleSetActiveEditingCell]);
+  }, [activeEditingCell, editingValue, onCellChangeInternal, handleSetActiveEditingCell, rows]);
+
+  const updateHiddenInputPosition = React.useCallback(() => {
+      if (focusedCell && !activeEditingCell && hiddenInputRef.current) {
+          const el = document.querySelector(`[data-row-id="${focusedCell.rowId}"][data-col-id="${focusedCell.colId}"]`);
+          if (el) {
+              const rect = el.getBoundingClientRect();
+              hiddenInputRef.current.style.left = `${rect.left}px`;
+              hiddenInputRef.current.style.top = `${rect.top}px`;
+              hiddenInputRef.current.style.width = `${rect.width}px`;
+              hiddenInputRef.current.style.height = `${rect.height}px`;
+          }
+      }
+  }, [focusedCell, activeEditingCell]);
 
   useEffect(() => {
       if (focusedCell && !activeEditingCell && hiddenInputRef.current) {
           setTimeout(() => {
+              updateHiddenInputPosition();
               if (hiddenInputRef.current) {
-                  const el = document.querySelector(`[data-row-id="${focusedCell.rowId}"][data-col-id="${focusedCell.colId}"]`);
-                  if (el) {
-                      const rect = el.getBoundingClientRect();
-                      const containerRect = hiddenInputRef.current.parentElement?.getBoundingClientRect();
-                      if (containerRect) {
-                          hiddenInputRef.current.style.left = `${rect.left - containerRect.left}px`;
-                          hiddenInputRef.current.style.top = `${rect.top - containerRect.top}px`;
-                      }
-                  }
                   hiddenInputRef.current.focus({ preventScroll: true });
               }
           }, 0);
       }
-  }, [focusedCell, activeEditingCell]);
+  }, [focusedCell, activeEditingCell, updateHiddenInputPosition]);
 
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
@@ -850,6 +864,9 @@ const GridView: React.FC<GridViewProps> = ({
           if (e.key.length === 1) {
               const textTypes = [FieldType.TEXT, FieldType.NUMBER, FieldType.HYPERLINK];
               if (textTypes.includes(col.type)) {
+                  if (e.keyCode === 229 || e.isComposing) {
+                      return;
+                  }
                   if (isHiddenInput) {
                       return;
                   }
@@ -2349,6 +2366,7 @@ const GridView: React.FC<GridViewProps> = ({
   };
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+      updateHiddenInputPosition();
       const target = e.currentTarget;
       if (target.scrollHeight - target.scrollTop - target.clientHeight < 300) {
           if (visibleRowCount < rows.length) {
@@ -2362,7 +2380,7 @@ const GridView: React.FC<GridViewProps> = ({
 
   return (
     <div 
-        className="flex flex-col h-full select-none" 
+        className="flex flex-col h-full relative select-none" 
         onMouseLeave={() => {
             handleCellMouseLeave();
             if (isDragFilling) handleDragFillEnd();
@@ -2371,8 +2389,12 @@ const GridView: React.FC<GridViewProps> = ({
     >
        <textarea 
            ref={hiddenInputRef}
-           className="absolute opacity-0 w-0 h-0 p-0 m-0 border-0 outline-none pointer-events-none"
-           onCompositionStart={() => { isComposingRef.current = true; }}
+           className="fixed opacity-0 p-0 m-0 border-0 outline-none pointer-events-none text-sm px-2"
+           style={{ zIndex: -1, resize: 'none', background: 'transparent' }}
+           onCompositionStart={() => { 
+               updateHiddenInputPosition();
+               isComposingRef.current = true; 
+           }}
            onCompositionEnd={(e) => {
                isComposingRef.current = false;
                if (focusedCell && !activeEditingCell) {

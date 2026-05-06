@@ -455,7 +455,14 @@ export const FilterMenu: React.FC<{
     onClose: () => void;
     onSaveAsView?: () => void;
 }> = ({ columns, filters, onChange, onClose, onSaveAsView }) => {
-    const [defaultOperators, setDefaultOperators] = useState<ApiOption[]>([]);
+    const [defaultOperators, setDefaultOperators] = useState<ApiOption[]>([
+        { label: '等于', value: 'eq' },
+        { label: '不等于', value: 'neq' },
+        { label: '包含', value: 'contains' },
+        { label: '不包含', value: 'not_contains' },
+        { label: '为空', value: 'is_empty' },
+        { label: '不为空', value: 'is_not_empty' },
+    ]);
     const [localFilters, setLocalFilters] = useState<FilterCondition[]>(filters);
     
     const lastFiltersRef = useRef(filters);
@@ -469,24 +476,8 @@ export const FilterMenu: React.FC<{
         }
     }, [filters]);
 
-    // Fetch operators from API
-    useEffect(() => {
-        api.getFilterOperators().then(res => {
-            if (res.data && Array.isArray(res.data)) setDefaultOperators(res.data);
-        }).catch(err => {
-            console.error("Failed to load filter operators", err);
-            // Fallback defaults
-            setDefaultOperators([
-                { label: '等于', value: 'eq' },
-                { label: '不等于', value: 'neq' },
-                { label: '包含', value: 'contains' },
-                { label: '不包含', value: 'not_contains' },
-                { label: '为空', value: 'is_empty' },
-                { label: '不为空', value: 'is_not_empty' },
-            ]);
-        });
-    }, []);
-
+    // Fetch operators from API is removed because we only want param specific results
+    
     // Check if a filter is "complete" enough to trigger a fetch
     const isFilterComplete = (filter: FilterCondition) => {
         if (!filter.column_id) return false;
@@ -1452,7 +1443,14 @@ export const ColorMenu: React.FC<{
     onClose: () => void;
     onSaveAsView?: () => void;
 }> = ({ columns, rules, onChange, onClose, onSaveAsView }) => {
-    const [defaultOperators, setDefaultOperators] = useState<ApiOption[]>([]);
+    const [defaultOperators, setDefaultOperators] = useState<ApiOption[]>([
+        { label: '等于', value: 'eq' },
+        { label: '不等于', value: 'neq' },
+        { label: '包含', value: 'contains' },
+        { label: '不包含', value: 'not_contains' },
+        { label: '为空', value: 'is_empty' },
+        { label: '不为空', value: 'is_not_empty' },
+    ]);
     const [localRules, setLocalRules] = useState<ColorRule[]>(rules);
     const lastRulesRef = useRef(rules);
     const operatorsMap = useFilterOperatorsMap(columns, localRules, 'fieldId');
@@ -1464,22 +1462,7 @@ export const ColorMenu: React.FC<{
         }
     }, [rules]);
 
-    // Fetch operators from API
-    useEffect(() => {
-        api.getFilterOperators().then(res => {
-            if (res.data && Array.isArray(res.data)) setDefaultOperators(res.data);
-        }).catch(err => {
-            console.error("Failed to load filter operators for ColorMenu", err);
-            setDefaultOperators([
-                { label: '等于', value: 'eq' },
-                { label: '不等于', value: 'neq' },
-                { label: '包含', value: 'contains' },
-                { label: '不包含', value: 'not_contains' },
-                { label: '为空', value: 'is_empty' },
-                { label: '不为空', value: 'is_not_empty' },
-            ]);
-        });
-    }, []);
+    // Fetch operators from API is removed because we only want param specific results
 
     const handleAdd = () => {
         if (columns.length === 0) return;
@@ -1841,16 +1824,16 @@ export const GanttSettingMenu: React.FC<{
                                 type="radio" 
                                 name="ganttColor" 
                                 checked={!!config.colorFieldId}
-                                onChange={() => onChange({ colorFieldId: columns[0]?.id || null })}
+                                onChange={() => onChange({ colorFieldId: columns[0]?.id || null, customColor: '' })}
                             />
-                            <span className="text-sm cursor-pointer" onClick={() => onChange({ colorFieldId: columns[0]?.id || null })}>按单选字段着色</span>
+                            <span className="text-sm cursor-pointer" onClick={() => onChange({ colorFieldId: columns[0]?.id || null, customColor: '' })}>按单选字段着色</span>
                             {!!config.colorFieldId && (
                                 <div className="ml-auto w-28">
                                     <Select 
                                         portal={true}
                                         options={columns.map(c => ({ label: c.name, value: c.id }))}
                                         value={config.colorFieldId} 
-                                        onChange={(val) => onChange({ colorFieldId: val })}
+                                        onChange={(val) => onChange({ colorFieldId: val, customColor: '' })}
                                         triggerClassName="w-full text-xs border border-gray-200 rounded px-1 py-1 outline-none"
                                     />
                                 </div>
@@ -1861,9 +1844,9 @@ export const GanttSettingMenu: React.FC<{
                                 type="radio" 
                                 name="ganttColor" 
                                 checked={!config.colorFieldId}
-                                onChange={() => onChange({ colorFieldId: null, customColor: 'bg-primary-500' })}
+                                onChange={() => onChange({ colorFieldId: '', customColor: 'bg-primary-500' })}
                             />
-                            <span className="text-sm cursor-pointer" onClick={() => onChange({ colorFieldId: null, customColor: 'bg-primary-500' })}>统一颜色</span>
+                            <span className="text-sm cursor-pointer" onClick={() => onChange({ colorFieldId: '', customColor: 'bg-primary-500' })}>统一颜色</span>
                             {!config.colorFieldId && (
                                 <div className="ml-auto flex gap-1">
                                     {COLORS.slice(0, 5).map(c => (
