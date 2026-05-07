@@ -523,11 +523,12 @@ export const FilterMenu: React.FC<{
                     updatedFilter.value = '';
                 }
                 
-                // If it's an attachment, enforce 'is_not_empty' or 'is_empty'
+                let rowOps = operatorsMap[column.type] && operatorsMap[column.type].length > 0 ? operatorsMap[column.type] : defaultOperators;
                 if (column.type === FieldType.ATTACHMENT) {
-                    if (!['is_empty', 'is_not_empty'].includes(updatedFilter.operator)) {
-                        updatedFilter.operator = 'is_not_empty';
-                    }
+                    rowOps = rowOps.filter(o => ['is_empty', 'is_not_empty'].includes(o.value));
+                }
+                if (rowOps.length > 0) {
+                    updatedFilter.operator = rowOps[0].value;
                 }
             }
         }

@@ -1452,17 +1452,40 @@ const GridView: React.FC<GridViewProps> = ({
 
       const handleCellClick = (e: React.MouseEvent) => {
           const wasFocused = focusedCellAtMouseDown.current?.rowId === row.id && focusedCellAtMouseDown.current?.colId === col.id;
-          if (wasFocused) {
-              if ([FieldType.USER, FieldType.DEPARTMENT, FieldType.SELECT, FieldType.MULTI_SELECT, FieldType.ATTACHMENT].includes(col.type)) {
+          
+          if (wasFocused && !activeEditingCell) {
+              e.stopPropagation();
+              e.preventDefault();
+              if (col.type === FieldType.LINK) {
+                  const values = parseLinkValues(val);
+                  const targetTableId = col.config?.linked_table_id;
+                  if (targetTableId) {
+                      const primaryColId = columns[0]?.id;
+                      const rowTitle = primaryColId ? String(row.data[primaryColId] || row.id) : row.id;
+
+                      setLinkDialogState({
+                          isOpen: true,
+                          rowId: row.id,
+                          colId: col.id,
+                          targetTableId,
+                          initialValues: values,
+                          title: rowTitle
+                      });
+                  } else {
+                      toast.error('请先配置关联表');
+                  }
+              } else if ([FieldType.USER, FieldType.DEPARTMENT, FieldType.SELECT, FieldType.MULTI_SELECT, FieldType.ATTACHMENT].includes(col.type)) {
                   const rect = e.currentTarget.getBoundingClientRect();
                   handleSetActiveEditingCell({ rowId: row.id, colId: col.id, rect });
-              } else if (col.type === FieldType.CHECKBOX) {
-                  onCellChangeInternal(row.id, col.id, !val);
-              } else if (![FieldType.LINK, FieldType.FORMULA, FieldType.LOOKUP, FieldType.SEARCH_REFERENCE].includes(col.type)) {
+              } else if (![FieldType.CHECKBOX, FieldType.FORMULA, FieldType.LOOKUP, FieldType.SEARCH_REFERENCE].includes(col.type)) {
                   startEditing(row.id, col.id, val);
               }
-          } else {
-              setFocusedCell({ rowId: row.id, colId: col.id });
+              return;
+          }
+
+          setFocusedCell({ rowId: row.id, colId: col.id });
+          if (col.type === FieldType.CHECKBOX && !wasFocused) {
+             onCellChangeInternal(row.id, col.id, !val);
           }
       };
 
@@ -1700,7 +1723,7 @@ const GridView: React.FC<GridViewProps> = ({
 
       if (col.type === FieldType.TEXT) {
               return (
-                  <div className="absolute top-0 left-0 w-full h-full z-[100]">
+                  <ClickOutsideWrapper onClickOutside={saveEditing} className="absolute top-0 left-0 w-full h-full z-[100]">
                       <AutoResizeTextarea
                           className="relative z-[101] w-full min-h-full bg-white border-2 border-primary-500 outline-none px-2 py-1 text-sm resize-none overflow-hidden shadow-lg"
                           value={(editingValue !== null && editingValue !== undefined) ? editingValue : (val || '')}
@@ -1712,7 +1735,6 @@ const GridView: React.FC<GridViewProps> = ({
                               const val = e.target.value;
                               e.target.setSelectionRange(val.length, val.length);
                           }}
-                          onBlur={saveEditing}
                           onKeyDown={(e: any) => {
                               if (e.key === 'Enter' && !e.shiftKey) {
                                   e.preventDefault();
@@ -1720,7 +1742,7 @@ const GridView: React.FC<GridViewProps> = ({
                               }
                           }}
                       />
-                  </div>
+                  </ClickOutsideWrapper>
               );
           }
 
@@ -1775,10 +1797,6 @@ const GridView: React.FC<GridViewProps> = ({
               <div 
                   className="w-full h-full flex items-center px-2 gap-1 overflow-hidden cursor-pointer relative group/cell"
                   onClick={handleCellClick}
-                  onDoubleClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      handleSetActiveEditingCell({ rowId: row.id, colId: col.id, rect });
-                  }}
                   onMouseEnter={(e) => handleCellMouseEnter(e, row, col, val)}
                   onMouseLeave={handleCellMouseLeave}
               >
@@ -1804,10 +1822,6 @@ const GridView: React.FC<GridViewProps> = ({
               <div 
                   className="w-full h-full flex items-center px-2 gap-1 overflow-hidden cursor-pointer relative group/cell"
                   onClick={handleCellClick}
-                  onDoubleClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      handleSetActiveEditingCell({ rowId: row.id, colId: col.id, rect });
-                  }}
                   onMouseEnter={(e) => handleCellMouseEnter(e, row, col, val)}
                   onMouseLeave={handleCellMouseLeave}
               >
@@ -1828,10 +1842,6 @@ const GridView: React.FC<GridViewProps> = ({
               <div 
                   className="w-full h-full flex items-center px-2 cursor-pointer relative group/cell"
                   onClick={handleCellClick}
-                  onDoubleClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      handleSetActiveEditingCell({ rowId: row.id, colId: col.id, rect });
-                  }}
                   onMouseEnter={(e) => handleCellMouseEnter(e, row, col, val)}
                   onMouseLeave={handleCellMouseLeave}
               >
@@ -1851,10 +1861,6 @@ const GridView: React.FC<GridViewProps> = ({
               <div 
                   className="w-full h-full flex items-center px-2 gap-1 overflow-hidden cursor-pointer relative group/cell"
                   onClick={handleCellClick}
-                  onDoubleClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      handleSetActiveEditingCell({ rowId: row.id, colId: col.id, rect });
-                  }}
                   onMouseEnter={(e) => handleCellMouseEnter(e, row, col, val)}
                   onMouseLeave={handleCellMouseLeave}
               >
@@ -1894,10 +1900,6 @@ const GridView: React.FC<GridViewProps> = ({
               <div 
                   className="w-full h-full flex items-center px-1 gap-1 cursor-pointer overflow-hidden relative group/cell"
                   onClick={handleCellClick}
-                  onDoubleClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      handleSetActiveEditingCell({ rowId: row.id, colId: col.id, rect });
-                  }}
                   onMouseEnter={(e) => handleCellMouseEnter(e, row, col, val)}
                   onMouseLeave={handleCellMouseLeave}
               >
@@ -1941,24 +1943,6 @@ const GridView: React.FC<GridViewProps> = ({
               <div 
                   className="w-full h-full flex items-center px-2 gap-1 overflow-hidden cursor-pointer relative group/cell"
                   onClick={handleCellClick}
-                  onDoubleClick={() => {
-                      if (targetTableId) {
-                          // Get primary column value for title
-                          const primaryColId = columns[0]?.id;
-                          const rowTitle = primaryColId ? String(row.data[primaryColId] || row.id) : row.id;
-
-                          setLinkDialogState({
-                              isOpen: true,
-                              rowId: row.id,
-                              colId: col.id,
-                              targetTableId,
-                              initialValues: values, // Pass full objects {id, name}
-                              title: rowTitle
-                          });
-                      } else {
-                          alert('请先配置关联表');
-                      }
-                  }}
                   onMouseEnter={(e) => handleCellMouseEnter(e, row, col, val)}
                   onMouseLeave={handleCellMouseLeave}
               >
@@ -1989,7 +1973,6 @@ const GridView: React.FC<GridViewProps> = ({
             <div 
                 className="px-2 truncate text-sm text-gray-700 w-full h-full flex items-center cursor-text group/cell relative justify-end text-right font-mono" 
                 onClick={handleCellClick}
-                onDoubleClick={() => startEditing(row.id, col.id, val)}
                 onContextMenu={(e) => handleContextMenu(e, row.id, col.id)}
                 onMouseEnter={(e) => handleCellMouseEnter(e, row, col, val)}
                 onMouseLeave={handleCellMouseLeave}
@@ -2005,7 +1988,6 @@ const GridView: React.FC<GridViewProps> = ({
           <div 
               className="px-2 truncate text-sm text-gray-700 w-full h-full flex items-center cursor-text group/cell relative" 
               onClick={handleCellClick}
-              onDoubleClick={() => startEditing(row.id, col.id, val)}
               onContextMenu={(e) => handleContextMenu(e, row.id, col.id)}
               onMouseEnter={(e) => handleCellMouseEnter(e, row, col, val)}
               onMouseLeave={handleCellMouseLeave}
@@ -2084,7 +2066,6 @@ const GridView: React.FC<GridViewProps> = ({
             <div 
                 className="px-2 truncate text-sm text-gray-700 w-full h-full flex items-center cursor-text group/cell relative" 
                 onClick={handleCellClick}
-                onDoubleClick={() => startEditing(row.id, col.id, val)}
                 onContextMenu={(e) => handleContextMenu(e, row.id, col.id)}
                 onMouseEnter={(e) => handleCellMouseEnter(e, row, col, val)}
                 onMouseLeave={handleCellMouseLeave}
@@ -2107,7 +2088,6 @@ const GridView: React.FC<GridViewProps> = ({
         <div 
             className="px-2 text-sm text-gray-700 w-full h-full flex items-center cursor-text group/cell relative hover:z-30" 
             onClick={handleCellClick}
-            onDoubleClick={() => startEditing(row.id, col.id, val)}
             onContextMenu={(e) => handleContextMenu(e, row.id, col.id)}
             style={isFirstCol ? { paddingLeft: level > 0 ? `${level * 24 + 8}px` : '8px' } : {}}
             onMouseEnter={(e) => handleCellMouseEnter(e, row, col, val)}
@@ -2309,9 +2289,13 @@ const GridView: React.FC<GridViewProps> = ({
                           key={col.id} 
                           className={`border-r border-gray-100 flex items-center relative shrink-0 ${isInDragRange ? 'bg-primary-50/30 ring-1 ring-inset ring-primary-400 z-10' : ''} ${isInSelectionRange && !isInDragRange ? 'bg-primary-50/40' : ''} ${isFocused ? 'ring-2 ring-inset ring-primary-500 z-20' : ''}`}
                           style={{ width: col.width || 150 }}
+                          data-row-id={row.id}
                           data-col-id={col.id}
                           onMouseDown={(e) => {
                               if (e.button !== 0) return;
+                              if (activeEditingCell && (activeEditingCell.rowId !== row.id || activeEditingCell.colId !== col.id)) {
+                                  saveEditing();
+                              }
                               focusedCellAtMouseDown.current = focusedCell;
                               if (e.shiftKey) {
                                   setSelectionEnd({ rowId: row.id, colId: col.id });
